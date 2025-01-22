@@ -32,7 +32,7 @@ set(CMAKE_CXX_EXTENSIONS        OFF)
 
 set(CMAKE_CXX_FLAGS_DEBUG   "-DDEBUG -g")
 set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG")
-set(CMAKE_CXX_FLAGS         "-O2")
+set(CMAKE_CXX_FLAGS         "-O2 -pthread")
 
 
 add_compile_options(
