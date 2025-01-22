@@ -16,7 +16,7 @@
 #include "soapMediaBindingService.h"
 #include "soapPTZBindingService.h"
 
-
+#include "plugin/threads.h"
 
 
 
@@ -475,7 +475,8 @@ void check_service_ctx(void)
 
 void init_gsoap(void)
 {
-    soap = soap_new();
+    // New context with HTTP keep-alive enabled
+    soap = soap_new1(SOAP_IO_KEEPALIVE);
 
     if(!soap)
         daemon_error_exit("Can't get mem for SOAP\n");
@@ -491,7 +492,8 @@ void init_gsoap(void)
 
     soap->send_timeout = 3; // timeout in sec
     soap->recv_timeout = 3; // timeout in sec
-
+    soap->accept_timeout = 24 * 60 * 60;         /* quit after 24h of inactivity (optional) */
+    soap->transfer_timeout = 10;                 /* 10 sec message transfer timeout */
 
     //save pointer of service_ctx in soap
     soap->user = (void*)&service_ctx;
@@ -508,26 +510,17 @@ void init(void *data)
 }
 
 
-
-int main(int argc, char *argv[])
+// Handler for multithreaded web server
+void *process_request(void *arg)
 {
-    processing_cmd(argc, argv);
-    daemonize2(init, nullptr);
-
-    FOREACH_SERVICE(DECLARE_SERVICE, soap)
-
-    while( true )
+    struct soap *soap = (struct soap *)arg;
+    THREAD_DETACH(THREAD_ID);
+    if (soap)
     {
-        // wait new client
-        if( !soap_valid_socket(soap_accept(soap)) )
-        {
-            soap_stream_fault(soap, std::cerr);
-            return EXIT_FAILURE;
-        }
-
+        FOREACH_SERVICE(DECLARE_SERVICE, soap)
 
         // process service
-        if( soap_begin_serve(soap) )
+        if (soap_begin_serve(soap))
         {
             soap_stream_fault(soap, std::cerr);
         }
@@ -537,9 +530,34 @@ int main(int argc, char *argv[])
             DEBUG_MSG("Unknown service\n");
         }
 
-        soap_destroy(soap); // delete managed C++ objects
-        soap_end(soap);     // delete managed memory
+        soap_destroy(soap);
+        soap_end(soap);
+        soap_free(soap);
     }
+    return NULL;
+}
+
+
+int main(int argc, char *argv[])
+{
+    processing_cmd(argc, argv);
+    daemonize2(init, nullptr);
+
+    while (soap_valid_socket(soap_accept(soap)))
+    {
+        THREAD_TYPE tid;
+        void *arg = (void *)soap_copy(soap);
+        if (!arg)
+            soap_force_closesock(soap);
+        else
+            while (THREAD_CREATE(&tid, (void *(*)(void *))process_request, arg))
+                sleep(1); /* thread creation failed, try again in one second */
+    }
+
+    soap_print_fault(soap, stderr);
+    soap_destroy(soap); /* delete deserialized objects */
+    soap_end(soap);     /* delete heap and temp data */
+    soap_free(soap);    /* we're done with the context */
 
 
     return EXIT_FAILURE; // Error, normal exit from the main loop only through the signal handler.
