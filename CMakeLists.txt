@@ -88,6 +88,7 @@ if(WSSE_ON)
         ${GSOAP_PLUGIN_DIR}/mecevp.c
         ${GSOAP_PLUGIN_DIR}/smdevp.c
         ${GSOAP_PLUGIN_DIR}/wsaapi.c
+	${GSOAP_CUSTOM_DIR}/struct_timeval.c
     )
 
     set(WSSE_HEADERS
